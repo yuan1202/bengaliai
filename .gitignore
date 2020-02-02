@@ -3,3 +3,4 @@ input/
 **/*.ipynb_checkpoints/
 features/*
 code/test.csv
+code/test.pth
