@@ -178,7 +178,10 @@ class BalanceSampler(Sampler):
         group = []
         grapheme_gb = df.groupby(['grapheme'])
         for k,i in TASK['grapheme'].class_map.items():
+            # get_group(k) k is the grapheme, e.g. 'ং'
+            # hence the index are the indices of rows that belong to this group
             g = grapheme_gb.get_group(k).index
+            # hence group is a list of length = number of graphemes, each element is a list of indices for the corresponding grapheme
             group.append(list(g))
             assert(len(g)>0)
 
@@ -191,18 +194,25 @@ class BalanceSampler(Sampler):
         # for i in range(self.num_sample):
         #     yield i
 
-
+        # the index is what gives control to draw data from dataset at each epoch
+        # if is assumed the __iter__ is called at the beginning of each epoch, therefore index reset.
         index = []
         n = 0
 
         is_loop = True
         while is_loop:
             num_class = TASK['grapheme'].num_class #1295
+            # get classes (grapheme) id in int
             c = np.arange(num_class)
+            # shuffle the classes
             np.random.shuffle(c)
+            # loop through each class (grapheme)
             for t in c:
+                # randomly pick an index from the list of indices of that class (grapheme)
                 i = np.random.choice(self.group[t])
+                # save to index
                 index.append(i)
+                # use n to control the number of samples per epoch
                 n+=1
                 if n == self.length:
                     is_loop = False
