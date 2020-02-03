@@ -4,3 +4,4 @@ input/
 features/*
 code/test.csv
 code/test.pth
+*.pth

@@ -1,4 +1,6 @@
 # https://www.kaggle.com/iafoss/grapheme-fast-ai-starter-lb-0-964
+from functools import wraps
+
 import fastai
 from fastai.vision import *
 from fastai.callbacks import *
@@ -74,9 +76,30 @@ class Metric_idx(Callback):
     def on_epoch_end(self, last_metrics, **kwargs): 
         return add_metrics(last_metrics, self._recall())
     
+    
+# def name_decorator(f):
+#     @wraps(f)
+#     def wrapper(*args, **kwds):
+#         return f(*args, **kwds)
+#     return wrapper
+
+# @name_decorator
+# def Metric_grapheme():
+#     Metric_idx(0)
+    
+# @name_decorator
+# def Metric_vowel():
+#     Metric_idx(1)
+    
+# @name_decorator
+# def Metric_consonant():
+#     Metric_idx(2)
+
+    
 Metric_grapheme = partial(Metric_idx,0)
 Metric_vowel = partial(Metric_idx,1)
 Metric_consonant = partial(Metric_idx,2)
+
 
 class Metric_tot(Callback):
     def __init__(self):

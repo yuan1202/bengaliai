@@ -1,9 +1,7 @@
 # based on https://www.kaggle.com/corochann/bengali-seresnext-training-with-pytorch
 # and https://www.kaggle.com/iafoss/image-preprocessing-128x128/output
 
-import numpy
-import six
-
+import numpy as np
 import torch
 from torch.utils.data.dataset import Dataset
 from torch.utils.data import WeightedRandomSampler
@@ -13,21 +11,24 @@ from config import *
 
 class DS_TRN(Dataset):
 
-    def __init__(self, img_arr, lbl_arr, sampling_weight=None, transform=None):
+    def __init__(self, img_arr, lbl_arr, sampling_weight=None, transform=None, norm=True):
         self.img_arr            = img_arr
         self.labels             = lbl_arr.astype(int)
         self.transform          = transform
+        self.norm              = norm
 
     def __getitem__(self, index):
         """Returns an example or a sequence of examples from each population."""
         if self.transform:
-            imgs = self.transform(self.img_arr[index])
+            img = self.transform(image=self.img_arr[index][0])[np.newaxis, :]
         else:
-            imgs = self.img_arr[index]
+            img = self.img_arr[index]
             
-        imgs = imgs / 255.
+        if self.norm:
+            img = img.astype('float32')
+            img = (img - img.mean()) / img.std()
             
-        return imgs.astype('float32'), self.labels[index]
+        return img, self.labels[index]
 
     def __len__(self):
         """Returns the number of data points."""
