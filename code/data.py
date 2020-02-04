@@ -24,11 +24,12 @@ class DS_TRN(Dataset):
         else:
             img = self.img_arr[index]
             
+        img = img / 255.
+        
         if self.norm:
-            img = img.astype('float32')
-            img = (img - img.mean()) / img.std()
+            img = (img - 0.0692) / 0.2051
             
-        return img, self.labels[index]
+        return img.astype('float32'), self.labels[index]
 
     def __len__(self):
         """Returns the number of data points."""

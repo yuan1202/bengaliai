@@ -5,3 +5,5 @@ features/*
 code/test.csv
 code/test.pth
 *.pth
+**/output/**
+**/outputs/**
