@@ -16,6 +16,19 @@ class Loss_combine(nn.Module):
         x1, x2, x3 = input
         x1, x2, x3 = x1.float(), x2.float(), x3.float()
         y = target.long()
+        return F.cross_entropy(x1, y[:,0], reduction=reduction) + \
+               F.cross_entropy(x2, y[:,1], reduction=reduction) + \
+               F.cross_entropy(x3, y[:,2], reduction=reduction)
+
+
+class Loss_combine_weighted(nn.Module):
+    def __init__(self):
+        super().__init__()
+        
+    def forward(self, input, target,reduction='mean'):
+        x1, x2, x3 = input
+        x1, x2, x3 = x1.float(), x2.float(), x3.float()
+        y = target.long()
         return 0.7*F.cross_entropy(x1, y[:,0], reduction=reduction) + \
                0.1*F.cross_entropy(x2, y[:,1], reduction=reduction) + \
                0.2*F.cross_entropy(x3, y[:,2], reduction=reduction)
@@ -224,3 +237,4 @@ class MixUpCallback(LearnerCallback):
     
     def on_train_end(self, **kwargs):
         if self.stack_y: self.learn.loss_func = self.learn.loss_func.get_old()
+            
