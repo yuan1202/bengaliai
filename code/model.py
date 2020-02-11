@@ -100,6 +100,14 @@ class BengaliClassifier(nn.Module):
         preds = torch.split(pred, [self.n_grapheme, self.n_vowel, self.n_consonant], dim=1)
         return preds
     
+class BengaliClassifier_Single(nn.Module):
+    def __init__(self, predictor):
+        super(BengaliClassifier_Single, self).__init__()
+        self.predictor = predictor
+
+    def forward(self, x, y=None):
+        pred = self.predictor(x)
+        return [pred]
 
 # -----------------------------------------------------------------
 nunique = [168, 11, 7]

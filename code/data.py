@@ -1,8 +1,9 @@
 # based on https://www.kaggle.com/corochann/bengali-seresnext-training-with-pytorch
 # and https://www.kaggle.com/iafoss/image-preprocessing-128x128/output
 
-import itertools, random
+import os, itertools, random
 import numpy as np
+from PIL import Image
 import torch
 from torch.utils.data.dataset import Dataset
 from torch.utils.data import Sampler
@@ -12,11 +13,13 @@ from config import *
 
 class Bengaliai_DS(Dataset):
 
-    def __init__(self, img_arr, lbl_arr, sampling_weight=None, transform=None, norm=True):
+    def __init__(self, img_arr, lbl_arr, transform=None, scale=True, norm=True, split_label=False):
         self.img_arr            = img_arr
         self.labels             = lbl_arr.astype(int)
         self.transform          = transform
-        self.norm              = norm
+        self.scale              = scale
+        self.norm               = norm
+        self.split_label        = split_label
 
     def __getitem__(self, index):
         """Returns an example or a sequence of examples from each population."""
@@ -25,12 +28,20 @@ class Bengaliai_DS(Dataset):
         else:
             img = self.img_arr[index][np.newaxis, :]
             
-        img = img / 255.
+        img = img.astype(float)
+        
+        if self.scale:
+            img = img / 255.
         
         if self.norm:
             img = (img - 0.0692) / 0.2051
+            #img = (img - img.mean()) / img.std()
             
-        return img.astype('float32'), self.labels[index]
+        lbl = self.labels[index].astype(int)
+        if self.split_label:
+            lbl = lbl.tolist()
+            
+        return img.astype('float32'), lbl
 
     def __len__(self):
         """Returns the number of data points."""
@@ -41,6 +52,51 @@ class Bengaliai_DS(Dataset):
         return self.__len__() == 0
 
 
+class Bengaliai_DS_LIT(Dataset):
+
+    def __init__(self, pdf, img_dir='../features/grapheme-imgs-128x128/', transform=None, scale=True, norm=True, split_label=False):
+        self.dir                = img_dir
+        assert all([col in pdf for col in ['image_id', 'grapheme_root',	'vowel_diacritic', 'consonant_diacritic', 'grapheme']])
+        self.pdf                = pdf
+        self.transform          = transform
+        self.scale              = scale
+        self.norm               = norm
+        self.split_label        = split_label
+
+    def __getitem__(self, index):
+        """Returns an example or a sequence of examples from each population."""
+        img = Image.open(os.path.join('../features/grapheme-imgs-128x128/', self.pdf.iloc[index, 0] + '.png')).convert('L')
+        img = np.array(img)
+        
+        if self.transform:
+            img = self.transform(image=img)[np.newaxis, :]
+        else:
+            img = img[np.newaxis, :]
+            
+        img = img.astype(float)
+        
+        if self.scale:
+            img = img / 255.
+        
+        if self.norm:
+            img = (img - 0.0692) / 0.2051
+            #img = (img - img.mean()) / img.std()
+            
+        lbl = self.pdf.iloc[index, 1:4].values.astype(int)
+        if self.split_label:
+            lbl = lbl.tolist()
+            
+        return img.astype('float32'), lbl
+
+    def __len__(self):
+        """Returns the number of data points."""
+        return self.pdf.shape[0]
+    
+    @property
+    def is_empty(self):
+        return self.__len__() == 0
+    
+    
 # -----------------------------------------------------------------
 class Balanced_Sampler(Sampler):
     

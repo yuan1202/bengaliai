@@ -1,4 +1,4 @@
-import os, gc
+import os, gc, sys
 import numpy as np
 import pandas as pd
 import cv2
@@ -14,7 +14,7 @@ def bbox(img):
     return rmin, rmax, cmin, cmax
 
 
-def crop_resize(img0, pad=16):
+def crop_resize(img0, pad=PADDING):
     #crop a box around pixels large than the threshold 
     #some images contain line at the sides
     ymin,ymax,xmin,xmax = bbox(img0[5:-5,5:-5] > 80)
@@ -61,3 +61,44 @@ def prepare_image(datadir, featherdir, data_type='train', submission=False, indi
         images_enhance.append(crop_resize(np.round(img * (255. / img.max())).astype(np.uint8)))
         
     return np.stack(images_enhance), np.concatenate(label_trace, axis=0)
+
+
+class csv_logger():
+    def __init__(self, items):
+        assert isinstance(items, (list, tuple)), 'Please initiliase logger with a list of columns (items to log).'
+        self.log = pd.DataFrame(columns=items)
+        self.log.index.name = 'Epoch'
+        self.__pointer = -1
+        
+    def reset(self, items):
+        self.log = pd.DataFrame(columns=items)
+        
+    def new_epoch(self):
+        self.__pointer += 1
+    
+    def enter(self, entry):
+        assert self.__pointer >= 0, 'Please call new_epoch() after initialisation.'
+        assert isinstance(entry, dict), 'Input information has to be in the form of python dictionary.'
+        for kv in entry.items():
+            if kv[0] not in self.log:
+                print('{} is not setup to be tracked. Please reset logger with correct items.'.format(kv[0]))
+                continue
+            else:
+                self.log.loc[self.__pointer, kv[0]] = kv[1]
+            
+    def save(self, path):
+        assert isinstance(path, str), 'Please specify a path.'
+        if not path.endswith('.csv'):
+            path = path + '.csv'
+        self.log.to_csv(path)
+        
+        
+def display_progress(total, current, key_value_pairs, postfix='batches', persist=False):
+    message = '{:d}/{:d} {}: '.format(current, total, postfix) + '; '.join([k + ': {:.3f}'.format(v) for k, v in key_value_pairs.items()])
+    if persist:
+        print('\n')
+        print(message)
+    else:
+        sys.stdout.write('\r')
+        sys.stdout.write(message)
+        sys.stdout.flush()

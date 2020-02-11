@@ -1,5 +1,6 @@
 # https://www.kaggle.com/iafoss/grapheme-fast-ai-starter-lb-0-964
 from functools import wraps
+import random
 
 import fastai
 from fastai.vision import *
@@ -34,6 +35,28 @@ class Loss_combine_weighted(nn.Module):
                0.2*F.cross_entropy(x3, y[:,2], reduction=reduction)
     
     
+class Loss_single(nn.Module):
+    def __init__(self):
+        super().__init__()
+        
+    def forward(self, x, target,reduction='mean'):
+        y = target.long()
+        return F.cross_entropy(x[0], y, reduction=reduction)
+    
+
+class Loss_combine_weighted(nn.Module):
+    def __init__(self):
+        super().__init__()
+        
+    def forward(self, input, target,reduction='mean'):
+        x1, x2, x3, x4 = input
+        x1, x2, x3 = x1.float(), x2.float(), x3.float()
+        y = target.long()
+        return 0.7*F.cross_entropy(x1, y[:,0], reduction=reduction) + \
+               0.1*F.cross_entropy(x2, y[:,1], reduction=reduction) + \
+               0.2*F.cross_entropy(x3, y[:,2], reduction=reduction)
+    
+# -----------------------------------------------------------------
 # The code below computes the competition metric and recall macro metrics for individual components of the prediction. The code is partially borrowed from fast.ai.
 class Metric_idx(Callback):
     def __init__(self, idx, average='macro'):
@@ -174,7 +197,8 @@ class SaveModelCallback(TrackerCallback):
             #self.learn.load(f'{self.name}', purge=False)
             self.model.load_state_dict(torch.load(f'{self.name}.pth'))
             
-            
+
+# -------------------------------------------------------------------------------------
 # The code below modifies fast.ai MixUp calback to make it compatible with the current data.
 class MixUpLoss(Module):
     "Adapt the loss function `crit` to go with mixup."
@@ -205,6 +229,7 @@ class MixUpLoss(Module):
             setattr(self.crit, 'reduction', self.old_red)
             return self.crit
 
+        
 class MixUpCallback(LearnerCallback):
     "Callback that creates the mixed-up input and target."
     def __init__(self, learn:Learner, alpha:float=0.4, stack_x:bool=False, stack_y:bool=True):
@@ -237,4 +262,141 @@ class MixUpCallback(LearnerCallback):
     
     def on_train_end(self, **kwargs):
         if self.stack_y: self.learn.loss_func = self.learn.loss_func.get_old()
+
             
+# -------------------------------------------------------------------------------------
+class MixUpLoss_Single(Module):
+    "Adapt the loss function `crit` to go with mixup."
+    
+    def __init__(self, crit, reduction='mean'):
+        super().__init__()
+        if hasattr(crit, 'reduction'): 
+            self.crit = crit
+            self.old_red = crit.reduction
+            setattr(self.crit, 'reduction', 'none')
+        else: 
+            self.crit = partial(crit, reduction='none')
+            self.old_crit = crit
+        self.reduction = reduction
+        
+    def forward(self, output, target):
+        if len(target.shape) == 2 and target.shape[1] == 3:
+            loss1, loss2 = self.crit(output,target[:,0].long()), self.crit(output,target[:,1].long())
+            d = loss1 * target[:,-1] + loss2 * (1-target[:,-1])
+        else:  d = self.crit(output, target[:,0])
+        if self.reduction == 'mean':    return d.mean()
+        elif self.reduction == 'sum':   return d.sum()
+        return d
+    
+    def get_old(self):
+        if hasattr(self, 'old_crit'):  return self.old_crit
+        elif hasattr(self, 'old_red'): 
+            setattr(self.crit, 'reduction', self.old_red)
+            return self.crit
+        
+class MixUpCallback_Single(LearnerCallback):
+    "Callback that creates the mixed-up input and target."
+    def __init__(self, learn:Learner, alpha:float=0.4, stack_x:bool=False, stack_y:bool=True):
+        super().__init__(learn)
+        self.alpha, self.stack_x, self.stack_y = alpha, stack_x, stack_y
+    
+    def on_train_begin(self, **kwargs):
+        if self.stack_y: self.learn.loss_func = MixUpLoss_Single(self.learn.loss_func)
+        
+    def on_batch_begin(self, last_input, last_target, train, **kwargs):
+        "Applies mixup to `last_input` and `last_target` if `train`."
+        if not train: return
+        lambd = np.random.beta(self.alpha, self.alpha, last_target.size(0))
+        lambd = np.concatenate([lambd[:,None], 1-lambd[:,None]], 1).max(1)
+        lambd = last_input.new(lambd)
+        shuffle = torch.randperm(last_target.size(0)).to(last_input.device)
+        x1, y1 = last_input[shuffle], last_target[shuffle]
+        if self.stack_x:
+            new_input = [last_input, last_input[shuffle], lambd]
+        else: 
+            out_shape = [lambd.size(0)] + [1 for _ in range(len(x1.shape) - 1)]
+            new_input = (last_input * lambd.view(out_shape) + x1 * (1-lambd).view(out_shape))
+        if self.stack_y:
+            new_target = torch.cat([last_target.float(), y1.float(), lambd[:,None].float()], 1)
+        else:
+            if len(last_target.shape) == 2:
+                lambd = lambd.unsqueeze(1).float()
+            new_target = last_target.float() * lambd + y1.float() * (1-lambd)
+        return {'last_input': new_input, 'last_target': new_target}  
+    
+    def on_train_end(self, **kwargs):
+        if self.stack_y: self.learn.loss_func = self.learn.loss_func.get_old()
+            
+            
+# -------------------------------------------------------------------------------------      
+def rand_bboxes_FlantIndices(size, lam):
+    H = size[2]
+    W = size[3]
+    
+    index_addition = np.arange(size[0]) * H * W
+    
+    cut_ratios = np.sqrt(1. - lam)
+    cut_ws = np.round(W * cut_ratios).astype(int)
+    cut_hs = np.round(H * cut_ratios).astype(int)
+
+    # uniform
+    cx = np.random.randint(W, size=cut_ratios.shape[0])
+    cy = np.random.randint(H, size=cut_ratios.shape[0])
+
+    bbx0s = np.clip(cx - cut_ws // 2, 0, W)
+    bby0s = np.clip(cy - cut_hs // 2, 0, H)
+    bbx1s = np.clip(cx + cut_ws // 2, 0, W)
+    bby1s = np.clip(cy + cut_hs // 2, 0, H)
+    
+    multi_indices = [np.meshgrid(np.arange(x0, x1), np.arange(y0, y1)) for x0, x1, y0, y1 in zip(bbx0s, bbx1s, bby0s, bby1s)]
+    multi_indices_rvl = [np.ravel_multi_index(lst[::-1], (H, W)).flatten() for lst in multi_indices]
+    
+    boxes_in_flattened_indices = np.concatenate([index_r + addition for index_r, addition in zip(multi_indices_rvl, index_addition)])
+    new_lambda = 1 - ((bbx1s - bbx0s) * (bby1s - bby0s) / (H * W))
+    
+    return boxes_in_flattened_indices, new_lambda
+
+
+class MuCmCallback(LearnerCallback):
+    "Callback that creates the mixed-up input and target."
+    def __init__(self, learn:Learner, alpha:float=0.4, stack_y:bool=True):
+        super().__init__(learn)
+        self.alpha, self.stack_y = alpha, stack_y
+    
+    def on_train_begin(self, **kwargs):
+        if self.stack_y: self.learn.loss_func = MixUpLoss(self.learn.loss_func)
+        
+    def on_batch_begin(self, last_input, last_target, train, **kwargs):
+        "Applies mixup to `last_input` and `last_target` if `train`."
+        if not train: return
+        
+        lambd = np.random.beta(self.alpha, self.alpha, last_target.size(0))
+        lambd = np.concatenate([lambd[:,None], 1-lambd[:,None]], 1).max(1)
+        
+        shuffle = torch.randperm(last_target.size(0)).to(last_input.device)
+        input_wip, target_wip = last_input[shuffle], last_target[shuffle]
+        
+        # randomly choose between mixup or cutmix
+        cm = random.randint(0, 1)
+        if cm:
+            flattened_indices, lambd = rand_bboxes_FlantIndices(last_input.size(), lambd)
+            lambd = last_input.new(lambd)
+            last_input_newview = last_input.view(-1)
+            last_input_newview[torch.from_numpy(flattened_indices)] = input_wip.view(-1)[torch.from_numpy(flattened_indices)]
+            new_input = last_input
+            
+        else:
+            lambd = last_input.new(lambd)
+            out_shape = [lambd.size(0)] + [1 for _ in range(len(input_wip.shape) - 1)]
+            new_input = (last_input * lambd.view(out_shape) + input_wip * (1-lambd).view(out_shape))
+        
+        if self.stack_y:
+            new_target = torch.cat([last_target.float(), target_wip.float(), lambd[:,None].float()], 1)
+        else:
+            if len(last_target.shape) == 2:
+                lambd = lambd.unsqueeze(1).float()
+            new_target = last_target.float() * lambd + target_wip.float() * (1-lambd)
+        return {'last_input': new_input, 'last_target': new_target}  
+    
+    def on_train_end(self, **kwargs):
+        if self.stack_y: self.learn.loss_func = self.learn.loss_func.get_old()
