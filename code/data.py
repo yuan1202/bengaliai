@@ -13,13 +13,14 @@ from config import *
 
 class Bengaliai_DS(Dataset):
 
-    def __init__(self, img_arr, lbl_arr, transform=None, scale=True, norm=True, split_label=False):
+    def __init__(self, img_arr, lbl_arr, transform=None, scale=True, norm=True, split_label=False, dtype='float32'):
         self.img_arr            = img_arr
         self.labels             = lbl_arr.astype(int)
         self.transform          = transform
         self.scale              = scale
         self.norm               = norm
         self.split_label        = split_label
+        self.dtype              = dtype
 
     def __getitem__(self, index):
         """Returns an example or a sequence of examples from each population."""
@@ -41,7 +42,7 @@ class Bengaliai_DS(Dataset):
         if self.split_label:
             lbl = lbl.tolist()
             
-        return img.astype('float32'), lbl
+        return img.astype(self.dtype), lbl
 
     def __len__(self):
         """Returns the number of data points."""
@@ -138,3 +139,4 @@ class Balanced_Sampler(Sampler):
         samples = [random.choices(population=p, weights=w, k=samples_per_group) for p, w in zip(self._g_indices, self._g_weights)]
         random.shuffle(samples)
         return iter([val for tup in zip(*samples) for val in tup])
+    

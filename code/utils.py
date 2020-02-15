@@ -93,7 +93,7 @@ class csv_logger():
         self.log.to_csv(path)
         
         
-def display_progress(total, current, key_value_pairs, postfix='batches', persist=False):
+def display_progress(total, current, key_value_pairs={}, postfix='batches', persist=False):
     message = '{:d}/{:d} {}: '.format(current, total, postfix) + '; '.join([k + ': {:.3f}'.format(v) for k, v in key_value_pairs.items()])
     if persist:
         print('\n')

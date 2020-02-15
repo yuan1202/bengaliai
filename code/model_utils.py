@@ -17,9 +17,9 @@ class Loss_combine(nn.Module):
         x1, x2, x3 = input
         x1, x2, x3 = x1.float(), x2.float(), x3.float()
         y = target.long()
-        return F.cross_entropy(x1, y[:,0], reduction=reduction) + \
-               F.cross_entropy(x2, y[:,1], reduction=reduction) + \
-               F.cross_entropy(x3, y[:,2], reduction=reduction)
+        return (F.cross_entropy(x1, y[:,0], reduction=reduction) + \
+                F.cross_entropy(x2, y[:,1], reduction=reduction) + \
+                F.cross_entropy(x3, y[:,2], reduction=reduction)) / 3.
 
 
 class Loss_combine_weighted(nn.Module):
@@ -39,22 +39,10 @@ class Loss_single(nn.Module):
     def __init__(self):
         super().__init__()
         
-    def forward(self, x, target,reduction='mean'):
+    def forward(self, x, target, reduction='mean'):
         y = target.long()
-        return F.cross_entropy(x[0], y, reduction=reduction)
+        return F.cross_entropy(x[0], y.view(-1), reduction=reduction)
     
-
-class Loss_combine_weighted(nn.Module):
-    def __init__(self):
-        super().__init__()
-        
-    def forward(self, input, target,reduction='mean'):
-        x1, x2, x3, x4 = input
-        x1, x2, x3 = x1.float(), x2.float(), x3.float()
-        y = target.long()
-        return 0.7*F.cross_entropy(x1, y[:,0], reduction=reduction) + \
-               0.1*F.cross_entropy(x2, y[:,1], reduction=reduction) + \
-               0.2*F.cross_entropy(x3, y[:,2], reduction=reduction)
     
 # -----------------------------------------------------------------
 # The code below computes the competition metric and recall macro metrics for individual components of the prediction. The code is partially borrowed from fast.ai.
