@@ -9,7 +9,72 @@ import pretrainedmodels
 
 
 # base = pretrainedmodels.__dict__['se_resnext50_32x4d'](pretrained=None).to('cuda:0')
+# ------------------------------------------------------------------------
+class LocNCls_Single(nn.Module):
+    def __init__(self, n_classes):
+        super().__init__()
+        
+        self.adapter = nn.Conv2d(1, 3, kernel_size=3, stride=1, padding=1, bias=True)
+        
+        # classifiers
+        self.feature_extractor = pretrainedmodels.__dict__['se_resnext50_32x4d'](pretrained='imagenet')
+        self.cls = nn.Sequential(
+            nn.MaxPool2d(2, stride=2),
+            nn.Flatten(),
+            nn.Linear(2048*2*2, 1024),
+            nn.ReLU(True),
+            nn.Linear(1024, n_classes),
+        )
+        
+        # Spatial transformer localization-network
+        self.localization = nn.Sequential(
+            # 128->42
+            nn.Conv2d(1, 8, kernel_size=5, stride=3),
+            nn.ReLU(True),
+            # 42->14
+            nn.Conv2d(8, 16, kernel_size=5, stride=3, padding=1),
+            nn.ReLU(True),
+            # 14=>7
+            nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(True),
+        )
+        
+        # Regressors for each category for the 3 * 2 affine matrix
+        self.loc_fc = nn.Sequential(
+            nn.Linear(1568, 768),
+            nn.ReLU(True),
+            nn.Linear(768, 3 * 2)
+        )
+            
+        # Initialize the weights/bias with identity transformation
+        self.loc_fc[2].weight.data.zero_()
+        self.loc_fc[2].bias.data.copy_(torch.tensor([1, 0, 0, 0, 1, 0], dtype=torch.float))
 
+    # Spatial transformer network forward function
+    def stn(self, x):
+        xs = self.localization(x)
+        xs = xs.view(-1, 32 * 7 * 7)
+        theta = self.loc_fc(xs)
+        theta = theta.view(-1, 2, 3)
+
+        grid = F.affine_grid(theta, x.size())
+        x = F.grid_sample(x, grid)
+
+        return x
+    
+    def forward(self, x):
+        # transform the input
+        x = self.stn(x)
+
+        # Perform the usual forward pass
+        x = self.adapter(x)
+        x = self.feature_extractor.features(x)
+        x = self.cls(x)
+        
+        return [x]
+    
+    
+# ------------------------------------------------------------------------
 class double_conv(nn.Module):
     '''(conv => BN => ReLU) * 2'''
     def __init__(self, in_ch, out_ch):

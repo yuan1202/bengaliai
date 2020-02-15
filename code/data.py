@@ -140,3 +140,44 @@ class Balanced_Sampler(Sampler):
         random.shuffle(samples)
         return iter([val for tup in zip(*samples) for val in tup])
     
+
+class Balanced_Sampler_v2(Sampler):
+    
+    def __init__(self, pdf, size, block_size):
+        
+        self.gb = pdf.groupby(primary_group)
+        
+        self.size = size
+        
+        self._g_indices = []
+        self._g_weights = []
+        
+        # equal opportunity at this level
+        for g in self.gb:
+            indices = []
+            weights = []
+            sub_gb = g[1].groupby(secondary_group)
+            # weighted drawing between sub-groups
+            for sub_g in sub_gb:
+                indices.append(sub_g[1].index.tolist())
+                weights.append(sub_g[1].shape[0])
+                
+            # post process weights for this group
+            weights = np.array(weights)
+            weights = weights.sum() / weights
+            
+            self._g_weights.append(
+                list(
+                    itertools.chain(*[[w] * len(i) for w, i in zip(weights.tolist(), indices)])
+                )
+            )
+            self._g_indices.append(list(itertools.chain(*indices)))
+            
+    def __len__(self):
+        return self.size
+    
+    def __iter__(self):
+        samples_per_group = np.round(self.size / len(self.gb)).astype(int)
+        samples = [random.choices(population=p, weights=w, k=samples_per_group) for p, w in zip(self._g_indices, self._g_weights)]
+        random.shuffle(samples)
+        return iter([val for tup in zip(*samples) for val in tup])
