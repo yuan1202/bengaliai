@@ -14,26 +14,38 @@ def bbox(img):
     return rmin, rmax, cmin, cmax
 
 
-def crop_resize(img0, pad=PADDING):
+def crop_resize(img0, pad=PADDING, keep_aspect=KEEP_ASPECT):
     #crop a box around pixels large than the threshold 
     #some images contain line at the sides
-    ymin,ymax,xmin,xmax = bbox(img0[5:-5,5:-5] > 80)
+#     ymin,ymax,xmin,xmax = bbox(img0[5:-5,5:-5] > THRESHOLD)
+    img0[:5, :] = 0
+    img0[-5:, :] = 0
+    img0[:, :5] = 0
+    img0[:, -5:] = 0
+    ymin,ymax,xmin,xmax = bbox(img0 > 80)
     #cropping may cut too much, so we need to add it back
-    xmin = xmin - 13 if (xmin > 13) else 0
-    ymin = ymin - 10 if (ymin > 10) else 0
-    xmax = xmax + 13 if (xmax < WIDTH - 13) else WIDTH
-    ymax = ymax + 10 if (ymax < HEIGHT - 10) else HEIGHT
+#     xmin = xmin - 13 if (xmin > 13) else 0
+#     ymin = ymin - 10 if (ymin > 10) else 0
+#     xmax = xmax + 13 if (xmax < WIDTH - 13) else WIDTH
+#     ymax = ymax + 10 if (ymax < HEIGHT - 10) else HEIGHT
+    xmin = xmin - 5 if (xmin > 5) else 0
+    ymin = ymin - 5 if (ymin > 5) else 0
+    xmax = xmax + 5 if (xmax < WIDTH - 5) else WIDTH
+    ymax = ymax + 5 if (ymax < HEIGHT - 5) else HEIGHT
     img = img0[ymin:ymax,xmin:xmax]
     #remove lo intensity pixels as noise
-    img[img < CLEAN_THRESHOLD] = 0
-    lx, ly = xmax-xmin,ymax-ymin
-    l = max(lx,ly) + pad
-    #make sure that the aspect ratio is kept in rescaling
-    img = np.pad(img, [((l-ly)//2,), ((l-lx)//2,)], mode='constant')
+    img[img < THRESHOLD] = 0
+    if keep_aspect:
+        lx, ly = xmax-xmin, ymax-ymin
+        l = max(lx,ly) + pad
+        #make sure that the aspect ratio is kept in rescaling
+        img = np.pad(img, [((l-ly)//2,), ((l-lx)//2,)], mode='constant')
+    else:
+        img = np.pad(img, [(pad, pad)])
     return cv2.resize(img, (RESIZE, RESIZE))
 
 
-def prepare_image(datadir, featherdir, data_type='train', submission=False, indices=[0, 1, 2, 3]):
+def prepare_image(datadir, featherdir, data_type='train', submission=False, indices=[0, 1, 2, 3], preprocess=True):
     assert data_type in ['train', 'test']
     
     if submission:
@@ -58,7 +70,10 @@ def prepare_image(datadir, featherdir, data_type='train', submission=False, indi
     
     images_enhance = []
     for img in images:
-        images_enhance.append(crop_resize(np.round(img * (255. / img.max())).astype(np.uint8)))
+        if preprocess:
+            images_enhance.append(crop_resize(np.round(img * (255. / img.max())).astype(np.uint8)))
+        else:
+            images_enhance.append(np.round(img * (255. / img.max())).astype(np.uint8))
         
     return np.stack(images_enhance), np.concatenate(label_trace, axis=0)
 

@@ -6,6 +6,27 @@ import fastai
 from fastai.vision import *
 from fastai.callbacks import *
 
+from losses import CB_loss, CenterLoss
+
+
+# -----------------------------------------------------------------
+# new losses
+grapheme_weights = np.load('../features/grapheme_roots_count.npy').tolist()
+vowel_weights = np.load('../features/vowels_count.npy').tolist()
+consonant_weights = np.load('../features/consonants_count.npy').tolist()
+
+
+class CBLoss_combine_weighted(nn.Module):
+    def __init__(self):
+        super().__init__()
+        
+    def forward(self, input, target, reduction='mean'):
+        x1, x2, x3 = input
+        x1, x2, x3 = x1.float(), x2.float(), x3.float()
+        y = target.long()
+        return 2*CB_loss(y[:,0], x1, grapheme_weights, 168) + \
+               1*CB_loss(y[:,1], x2, vowel_weights, 11) + \
+               1*CB_loss(y[:,2], x3, consonant_weights, 7)
 
 # -----------------------------------------------------------------
 # Cross entropy loss is applied independently to each part of the prediction and the result is summed with the corresponding weight.
@@ -204,7 +225,7 @@ class MixUpLoss(Module):
         
     def forward(self, output, target):
         if len(target.shape) == 2 and target.shape[1] == 7:
-            loss1, loss2 = self.crit(output,target[:,0:3].long()), self.crit(output,target[:,3:6].long())
+            loss1, loss2 = self.crit(output, target[:,0:3].long()), self.crit(output, target[:,3:6].long())
             d = loss1 * target[:,-1] + loss2 * (1-target[:,-1])
         else:  d = self.crit(output, target)
         if self.reduction == 'mean':    return d.mean()
@@ -269,7 +290,7 @@ class MixUpLoss_Single(Module):
         
     def forward(self, output, target):
         if len(target.shape) == 2 and target.shape[1] == 3:
-            loss1, loss2 = self.crit(output,target[:,0].long()), self.crit(output,target[:,1].long())
+            loss1, loss2 = self.crit(output, target[:,0].long()), self.crit(output, target[:,1].long())
             d = loss1 * target[:,-1] + loss2 * (1-target[:,-1])
         else:  d = self.crit(output, target[:,0])
         if self.reduction == 'mean':    return d.mean()
