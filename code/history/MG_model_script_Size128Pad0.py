@@ -27,8 +27,8 @@ from data import Bengaliai_DS, Balanced_Sampler_v2
 # from models_mg import Simple50GeM
 
 from callback_utils import SaveModelCallback
-from mixup_fastai_utils import CmCallback, MuCmCallback
-from loss import Loss_combine_weighted
+from mixup_fastai_utils import CmCallback, MuCmCallback, MixUpCallback
+from loss import Loss_combine_weighted, Loss_combine_weighted_v2
 from metric import Metric_grapheme, Metric_vowel, Metric_consonant, Metric_tot
 from models_mg import Simple50GeM
 
@@ -59,7 +59,7 @@ seed_everything(SEED)
 
 
 augs = iaa.SomeOf(
-    (0, 2),
+    (0, 3),
     [
         iaa.SomeOf(
             (1, 2),
@@ -70,7 +70,7 @@ augs = iaa.SomeOf(
                         iaa.PerspectiveTransform(scale=.08, keep_size=True),
                     ]
                 ),
-                iaa.PiecewiseAffine(scale=.03),
+                iaa.PiecewiseAffine(scale=.04),
             ],
             random_order=True
         ),
@@ -94,13 +94,13 @@ unique_grapheme = pdf['grapheme'].unique()
 grapheme_code = dict([(g, c) for g, c in zip(unique_grapheme, np.arange(unique_grapheme.shape[0]))])
 pdf['grapheme_code'] = [grapheme_code[g] for g in pdf['grapheme']]
 
-skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+skf = StratifiedKFold(n_splits=7, shuffle=True, random_state=19841202)
 for trn_ndx, vld_ndx in skf.split(pdf['grapheme_code'], pdf['grapheme_code']):
     break
     
 trn_pdf = pdf.iloc[trn_ndx, :]
 trn_pdf.reset_index(inplace=True, drop=True)
-imgs = bp.unpack_ndarray_from_file('../features/train_images_size128_pad3.bloscpack')
+imgs = bp.unpack_ndarray_from_file('../features/train_images_size128_pad0.bloscpack')
 lbls = pd.read_csv('../input/train.csv').iloc[:, 1:4].values
 
 trn_imgs = imgs[trn_ndx]
@@ -115,8 +115,10 @@ vld_lbls = lbls[vld_ndx]
 training_set = Bengaliai_DS(trn_imgs, trn_lbls, transform=augs)
 validation_set = Bengaliai_DS(vld_imgs, vld_lbls)
 
-training_loader = DataLoader(training_set, batch_size=64, num_workers=6, shuffle=True) # , sampler=sampler
-validation_loader = DataLoader(validation_set, batch_size=64, num_workers=6, shuffle=False)
+batch_size = 64
+
+training_loader = DataLoader(training_set, batch_size=batch_size, num_workers=6, shuffle=True) # , sampler=sampler
+validation_loader = DataLoader(validation_set, batch_size=batch_size, num_workers=6, shuffle=False)
 
 data_bunch = DataBunch(train_dl=training_loader, valid_dl=validation_loader)
 
@@ -139,24 +141,23 @@ classifier = Simple50GeM()
 
 # In[8]:
 
-logging_name = 'Simple50GeM_AllMish_MoreAugs_CuMu_RedOnPlat_Size128Pad3_128Epochs_1of5'
+logging_name = 'MG_model_script_Size128Pad0'
 
 learn = Learner(
     data_bunch,
     classifier,
-    loss_func=Loss_combine_weighted(),
+    loss_func=Loss_combine_weighted_v2(),
     opt_func=Over9000,
     metrics=[Metric_grapheme(), Metric_vowel(), Metric_consonant(), Metric_tot()]
 )
 
 logger = CSVLogger(learn, logging_name)
 
-learn.clip_grad = 1.0
+# learn.clip_grad = 1.0
 # learn.split([classifier.cls])
 learn.unfreeze()
 
 # In[9]:
-
 
 # learn.fit_one_cycle(
 #     64,
@@ -168,13 +169,13 @@ learn.unfreeze()
 # )
 
 learn.fit(
-    128,
+    160,
     lr=1e-2,
     wd=0.,
     callbacks=[
         logger, 
         SaveModelCallback(learn, monitor='metric_tot', mode='max', name=logging_name), 
-        ReduceLROnPlateauCallback(learn, patience=15, factor=.5, min_lr=1e-5),
+        ReduceLROnPlateauCallback(learn, patience=10, factor=.61803398875, min_lr=1e-5),
         MuCmCallback(learn),
     ]
 )

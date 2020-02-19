@@ -8,6 +8,7 @@ import torchvision
 from torchvision.models import densenet121, wide_resnet50_2
 from mish.mish import Mish
 from senet_mod import se_resnext50_32x4d
+from loss import CenterLoss, AngularPenaltySMLoss
     
     
 # ------------------------------------------------------------------------
@@ -24,61 +25,64 @@ class GeM(nn.Module):
         return gem(x, p=self.p, eps=self.eps)       
     def __repr__(self):
         return self.__class__.__name__ + '(' + 'p=' + '{:.4f}'.format(self.p.data.tolist()[0]) + ', ' + 'eps=' + str(self.eps) + ')'
-
-    
-class Simple50GeM_AdvancedLoss_Single(nn.Module):
-    def __init__(self, n_classes):
-        super().__init__()
-        self.n_cls = n_classes
-        
-        self.adapter = nn.Conv2d(1, 3, kernel_size=3, stride=1, padding=1, bias=True)
-        
-        # feature extraction
-        # input 128x128 -> 4x4; 160x160 -> 5x5; 168x168 -> 6x6
-        self.feature_extractor = se_resnext50_32x4d()
-        self.gpool = GeM()
-        # classifier
-        self.cls = n.Linear(2048, n_classes)
-    
-    def forward(self, x):
-
-        # Perform the usual forward pass
-        x = self.adapter(x)
-        x = self.feature_extractor.features(x)
-        feats = self.gpool(x).view(-1, 2048)
-        
-        y = self.cls(feats)
-        
-        return [y, feats]
     
     
 class Simple50GeM(nn.Module):
-    def __init__(self, n_grapheme=168, n_vowel=11, n_consonant=7):
+    def __init__(self, n_grapheme=168, n_vowel=11, n_consonant=7, dropout=.1, output_features=False):
         super().__init__()
         self.n_grapheme = n_grapheme
         self.n_vowel = n_vowel
         self.n_consonant = n_consonant
-        
-        self.adapter = nn.Conv2d(1, 3, kernel_size=3, stride=1, padding=1, bias=True)
+        self.dropout = dropout
+        self.feat_out = output_features
         
         # feature extraction
         # input 128x128 -> 4x4; 160x160 -> 5x5; 168x168 -> 6x6
         self.feature_extractor = se_resnext50_32x4d()
+        # global pooling
+        self.pooling = nn.Sequential(GeM(), Mish(), nn.Flatten())
         # classifier
-        self.cls = nn.Sequential(
-            GeM(),
-            nn.Flatten(),
-            nn.Linear(2048, n_grapheme+n_vowel+n_consonant)
+        self.cls_g = nn.Sequential(
+            nn.BatchNorm1d(2048),
+            nn.Dropout(p=dropout, inplace=True),
+            nn.Linear(2048, 512),
+            Mish(),
+            nn.BatchNorm1d(512),
+            nn.Dropout(p=dropout, inplace=True),
+            nn.Linear(512, self.n_grapheme),
+        )
+        self.cls_v = nn.Sequential(
+            nn.BatchNorm1d(2048),
+            nn.Dropout(p=dropout, inplace=True),
+            nn.Linear(2048, 512),
+            Mish(),
+            nn.BatchNorm1d(512),
+            nn.Dropout(p=dropout, inplace=True),
+            nn.Linear(512, self.n_vowel),
+        )
+        self.cls_c = nn.Sequential(
+            nn.BatchNorm1d(2048),
+            nn.Dropout(p=dropout, inplace=True),
+            nn.Linear(2048, 512),
+            Mish(),
+            nn.BatchNorm1d(512),
+            nn.Dropout(p=dropout, inplace=True),
+            nn.Linear(512, self.n_consonant),
         )
     
     def forward(self, x):
 
         # Perform the usual forward pass
-        x = self.adapter(x)
         x = self.feature_extractor.features(x)
-        x = self.cls(x)
+        feats = self.pooling(x)
+        x_g = self.cls_g(feats)
+        x_v = self.cls_v(feats)
+        x_c = self.cls_c(feats)
         
-        return torch.split(x, [self.n_grapheme, self.n_vowel, self.n_consonant], dim=1)
+        if self.feat_out:
+            return x_g, x_v, x_c, feats
+        else:
+            return x_g, x_v, x_c
     
     
 # ------------------------------------------------------------------------
@@ -418,6 +422,158 @@ class LocNCls_Light(nn.Module):
         y_c = self.cls_consonant(x_c)
         
         return y_g, y_v, y_c
+
+
+# class Simple50GeM_ArcFace_Single(nn.Module):
+#     def __init__(self, n_classes=168):
+#         super().__init__()
+#         self.n_classes = n_classes
+        
+#         self.adapter = nn.Conv2d(1, 3, kernel_size=3, stride=1, padding=1, bias=True)
+        
+#         # feature extraction
+#         # input 128x128 -> 4x4; 160x160 -> 5x5; 168x168 -> 6x6
+#         self.feature_extractor = se_resnext50_32x4d()
+#         self.gpool = GeM()
+#         # classifier
+#         self.cls = nn.Linear(2048, n_classes)
+#         # advanced learnable loss
+#         # center loss
+#         self.arcface = AngularPenaltySMLoss(in_features=2048, out_features=n_classes)
+    
+#     def forward(self, x, y=None):
+
+#         # Perform the usual forward pass
+#         x = self.adapter(x)
+#         x = self.feature_extractor.features(x)
+#         feats = self.gpool(x).view(-1, 2048)
+#         x = self.cls(feats)
+        
+#         if y == None:
+#             cntr_lss = 0.
+#         else:
+#             cntr_lss = self.arcface(feats, y[:, -1])
+        
+#         return (x, cntr_lss, )
+    
+    
+# class Simple50GeM_CenterLoss_Single(nn.Module):
+#     def __init__(self, n_classes=168):
+#         super().__init__()
+#         self.n_classes = n_classes
+        
+#         self.adapter = nn.Conv2d(1, 3, kernel_size=3, stride=1, padding=1, bias=True)
+        
+#         # feature extraction
+#         # input 128x128 -> 4x4; 160x160 -> 5x5; 168x168 -> 6x6
+#         self.feature_extractor = se_resnext50_32x4d()
+#         self.gpool = GeM()
+#         # classifier
+#         self.cls = nn.Linear(2048, n_classes)
+#         # advanced learnable loss
+#         # center loss
+#         self.center_loss = CenterLoss(num_classes=n_classes)
+    
+#     def forward(self, x, y=None):
+
+#         # Perform the usual forward pass
+#         x = self.adapter(x)
+#         x = self.feature_extractor.features(x)
+#         feats = self.gpool(x).view(-1, 2048)
+#         x = self.cls(feats)
+        
+#         if y == None:
+#             cntr_lss = 0.
+#         else:
+#             cntr_lss = self.center_loss(feats, y[:, -1])
+        
+#         return (x, cntr_lss, )
+    
+    
+# class Simple50GeM_Single(nn.Module):
+#     def __init__(self, n_classes=168):
+#         super().__init__()
+        
+#         self.adapter = nn.Conv2d(1, 3, kernel_size=3, stride=1, padding=1, bias=True)
+        
+#         # feature extraction
+#         # input 128x128 -> 4x4; 160x160 -> 5x5; 168x168 -> 6x6
+#         self.feature_extractor = se_resnext50_32x4d()
+#         # classifier
+#         self.cls = nn.Sequential(
+#             GeM(),
+#             nn.Flatten(),
+#             nn.Linear(2048, n_classes)
+#         )
+    
+#     def forward(self, x):
+
+#         # Perform the usual forward pass
+#         x = self.adapter(x)
+#         x = self.feature_extractor.features(x)
+#         x = self.cls(x)
+        
+#         return (x,)
+    
+    
+# class Simple50GeM_CenterLoss(nn.Module):
+#     def __init__(self, n_grapheme=168, n_vowel=11, n_consonant=7):
+#         super().__init__()
+#         self.n_grapheme = n_grapheme
+#         self.n_vowel = n_vowel
+#         self.n_consonant = n_consonant
+        
+#         # feature extraction
+#         # input 128x128 -> 4x4; 160x160 -> 5x5; 168x168 -> 6x6
+#         self.feature_extractor = se_resnext50_32x4d()
+#         # global pooling
+#         self.pooling = nn.Sequential(GeM(), Mish(), nn.Flatten())
+#         # center loss
+#         self.c_loss = CenterLoss()
+#         # classifier
+#         self.cls_g = nn.Sequential(
+#             nn.BatchNorm1d(2048),
+#             nn.Dropout(p=dropout, inplace=True),
+#             nn.Linear(2048, 512),
+#             Mish(),
+#             nn.BatchNorm1d(512),
+#             nn.Dropout(p=dropout, inplace=True),
+#             nn.Linear(512, self.n_grapheme),
+#         )
+#         self.cls_v = nn.Sequential(
+#             nn.BatchNorm1d(2048),
+#             nn.Dropout(p=dropout, inplace=True),
+#             nn.Linear(2048, 512),
+#             Mish(),
+#             nn.BatchNorm1d(512),
+#             nn.Dropout(p=dropout, inplace=True),
+#             nn.Linear(512, self.n_vowel),
+#         )
+#         self.cls_c = nn.Sequential(
+#             nn.BatchNorm1d(2048),
+#             nn.Dropout(p=dropout, inplace=True),
+#             nn.Linear(2048, 512),
+#             Mish(),
+#             nn.BatchNorm1d(512),
+#             nn.Dropout(p=dropout, inplace=True),
+#             nn.Linear(512, self.n_consonant),
+#         )
+    
+#     def forward(self, x, y=None):
+
+#         # Perform the usual forward pass
+#         x = self.feature_extractor.features(x)
+#         feats = self.pooling(x).view(-1, 2048)
+#         x_g = self.cls_g(x)
+#         x_v = self.cls_v(x)
+#         x_c = self.cls_c(x)
+        
+#         if y == None:
+#             adv_lss = 0.
+#         else:
+#             adv_lss = self.c_loss(feats, y[:, -1])
+        
+#         return x_g, x_v, x_c, adv_lss
     
     
 # class LocNCls(nn.Module):
@@ -498,3 +654,4 @@ class LocNCls_Light(nn.Module):
 #         y_c = self.cls_consonant(x_c)
         
 #         return y_base, y_g, y_v, y_c
+

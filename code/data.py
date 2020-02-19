@@ -12,6 +12,63 @@ from torch.utils.data import Sampler
 from config import *
 
 
+class Bengaliai_DS_AL(Dataset):
+    """ Advanced Loss (AL)
+    """
+
+    def __init__(self, img_arr, lbl_arr, double_classes=None, transform=None, scale=True, norm=True, split_label=False, dtype='float32'):
+        self.img_arr            = img_arr
+        self.labels             = lbl_arr.astype(int)
+        self.double_classes     = double_classes
+        self.transform          = transform
+        self.scale              = scale
+        self.norm               = norm
+        self.split_label        = split_label
+        self.dtype              = dtype
+
+    def __getitem__(self, index):
+        """Returns an example or a sequence of examples from each population."""
+        
+        img = self.img_arr[index]
+        lbl = self.labels[index].astype(int)
+        
+        if isinstance(self.double_classes, int) & (random.randint(0, 1)):
+            img = img[:, ::-1]
+            lbl += self.double_classes
+        
+        if self.transform:
+            
+            k = np.ones((random.randint(2, 3), random.randint(2, 3)), np.uint8)
+            if random.randint(0, 1):
+                img = cv2.dilate(img, k, iterations=1)
+            else:
+                img = cv2.erode(img, k, iterations=1)
+                
+            img = np.array(self.transform(image=img))
+            
+        img = img[np.newaxis, :].astype(float)
+        
+        if self.scale:
+            img = img / 255.
+        
+        if self.norm:
+            img = (img - 0.0692) / 0.2051
+            #img = (img - img.mean()) / img.std()
+            
+        if self.split_label:
+            lbl = lbl.tolist()
+            
+        return (img.astype(self.dtype), lbl), lbl
+
+    def __len__(self):
+        """Returns the number of data points."""
+        return self.img_arr.shape[0]
+    
+    @property
+    def is_empty(self):
+        return self.__len__() == 0
+
+
 class Bengaliai_DS(Dataset):
 
     def __init__(self, img_arr, lbl_arr, transform=None, scale=True, norm=True, split_label=False, dtype='float32'):
@@ -38,7 +95,7 @@ class Bengaliai_DS(Dataset):
                 
             img = self.transform(image=img)
             
-        img = img[np.newaxis, :].astype(float)
+        img = np.repeat(img[np.newaxis, :, :], 3, axis=0).astype(float)
         
         if self.scale:
             img = img / 255.
@@ -63,6 +120,8 @@ class Bengaliai_DS(Dataset):
 
 
 class Bengaliai_DS_LIT(Dataset):
+    """ Load in time (LIT)
+    """
 
     def __init__(self, pdf, img_dir='../features/grapheme-imgs-128x128/', transform=None, scale=True, norm=True, split_label=False):
         self.dir                = img_dir
