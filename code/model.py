@@ -54,7 +54,7 @@ class PretrainedCNN(nn.Module):
         super(PretrainedCNN, self).__init__()
         
         # convert channels to 3 to adapt to pre-trained model
-        self.conv0 = nn.Conv2d(in_channels, 3, kernel_size=3, stride=1, padding=1, bias=True)
+        #self.conv0 = nn.Conv2d(in_channels, 3, kernel_size=3, stride=1, padding=1, bias=True)
         
         self.base_model = pretrainedmodels.__dict__[model_name](pretrained=pretrained)
         
@@ -72,8 +72,8 @@ class PretrainedCNN(nn.Module):
         self.lin_layers = Sequential(lin1, lin2)
 
     def forward(self, x):
-        h = self.conv0(x)
-        h = self.base_model.features(h)
+        #h = self.conv0(x)
+        h = self.base_model.features(x)
 
         if self.do_pooling:
             h = torch.sum(h, dim=(-1, -2))

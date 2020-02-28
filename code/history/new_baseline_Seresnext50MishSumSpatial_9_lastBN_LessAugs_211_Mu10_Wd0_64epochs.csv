@@ -1,0 +1,2 @@
+epoch,train_loss,valid_loss,metric_grapheme,metric_vowel,metric_consonant,metric_tot,time
+0,1.566927,0.332476,0.868025,0.926575,0.923051,0.896419,10:55

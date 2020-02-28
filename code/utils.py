@@ -1,4 +1,5 @@
 import os, gc, sys
+from datetime import datetime
 import numpy as np
 import pandas as pd
 import cv2
@@ -17,24 +18,19 @@ def bbox(img):
 def crop_resize(img0, pad=PADDING, keep_aspect=KEEP_ASPECT):
     #crop a box around pixels large than the threshold 
     #some images contain line at the sides
-#     ymin,ymax,xmin,xmax = bbox(img0[5:-5,5:-5] > THRESHOLD)
-    img0[:5, :] = 0
-    img0[-5:, :] = 0
-    img0[:, :5] = 0
-    img0[:, -5:] = 0
-    ymin,ymax,xmin,xmax = bbox(img0 > 80)
+    img0[:3, :] = 0
+    img0[-3:, :] = 0
+    img0[:, :3] = 0
+    img0[:, -3:] = 0
+    ymin, ymax, xmin, xmax = bbox(img0 > 20)
     #cropping may cut too much, so we need to add it back
-#     xmin = xmin - 13 if (xmin > 13) else 0
-#     ymin = ymin - 10 if (ymin > 10) else 0
-#     xmax = xmax + 13 if (xmax < WIDTH - 13) else WIDTH
-#     ymax = ymax + 10 if (ymax < HEIGHT - 10) else HEIGHT
     xmin = xmin - 5 if (xmin > 5) else 0
     ymin = ymin - 5 if (ymin > 5) else 0
     xmax = xmax + 5 if (xmax < WIDTH - 5) else WIDTH
     ymax = ymax + 5 if (ymax < HEIGHT - 5) else HEIGHT
-    img = img0[ymin:ymax,xmin:xmax]
-    #remove lo intensity pixels as noise
-    img[img < THRESHOLD] = 0
+    img = img0[ymin:ymax, xmin:xmax]
+    # remove lo intensity pixels as noise
+    #img[img < THRESHOLD] = 0
     if keep_aspect:
         lx, ly = xmax-xmin, ymax-ymin
         l = max(lx,ly) + pad
@@ -42,16 +38,24 @@ def crop_resize(img0, pad=PADDING, keep_aspect=KEEP_ASPECT):
         img = np.pad(img, [((l-ly)//2,), ((l-lx)//2,)], mode='constant')
     else:
         img = np.pad(img, [(pad, pad)])
-    return cv2.resize(img, (RESIZE, RESIZE))
+    return cv2.resize(img, (RESIZE, RESIZE), interpolation=cv2.INTER_CUBIC)
 
 
-def prepare_image(datadir, featherdir, data_type='train', submission=False, indices=[0, 1, 2, 3], preprocess=True):
+def to_64x112(image):
+    image = cv2.resize(image, dsize=None, fx=64/137,fy=64/137, interpolation=cv2.INTER_CUBIC)
+    image = cv2.copyMakeBorder(image,0,0,1,1,cv2.BORDER_CONSTANT,0)
+    return image
+
+
+def to_128x128(image):
+    image = cv2.resize(image, dsize=(RESIZE, RESIZE), interpolation=cv2.INTER_CUBIC)
+    return image
+
+
+def prepare_image(datadir, data_type='train', submission=False, indices=[0, 1, 2, 3], preprocess=True):
     assert data_type in ['train', 'test']
     
-    if submission:
-        image_df_list = [pd.read_parquet(os.path.join(datadir, '{}_image_data_{}.parquet'.format(data_type, i))) for i in indices]
-    else:
-        image_df_list = [pd.read_feather(os.path.join(featherdir,  '{}_image_data_{}.feather'.format(data_type, i))) for i in indices]
+    image_df_list = [pd.read_parquet(os.path.join(datadir, '{}_image_data_{}.parquet'.format(data_type, i))) for i in indices]
 
     print('image_df_list', len(image_df_list))
     
@@ -73,7 +77,7 @@ def prepare_image(datadir, featherdir, data_type='train', submission=False, indi
         if preprocess:
             images_enhance.append(crop_resize(np.round(img * (255. / img.max())).astype(np.uint8)))
         else:
-            images_enhance.append(np.round(img * (255. / img.max())).astype(np.uint8))
+            images_enhance.append(to_128x128(img.astype(np.uint8)))
         
     return np.stack(images_enhance), np.concatenate(label_trace, axis=0)
 
@@ -109,7 +113,8 @@ class csv_logger():
         
         
 def display_progress(total, current, key_value_pairs={}, postfix='batches', persist=False):
-    message = '{:d}/{:d} {}: '.format(current, total, postfix) + '; '.join([k + ': {:.3f}'.format(v) for k, v in key_value_pairs.items()])
+    time = '; time: {};'.format(datetime.now().strftime("%d%b%Y-%HH%MM%SS"))
+    message = '{:d}/{:d} {}: '.format(current, total, postfix) + '; '.join([k + ': {:.4f}'.format(v) for k, v in key_value_pairs.items()]) + time
     if persist:
         print('\n')
         print(message)
@@ -117,3 +122,21 @@ def display_progress(total, current, key_value_pairs={}, postfix='batches', pers
         sys.stdout.write('\r')
         sys.stdout.write(message)
         sys.stdout.flush()
+        
+        
+def separate_bn_paras(modules):
+    if not isinstance(modules, list):
+        modules = [*modules.modules()]
+    paras_only_bn = []
+    paras_wo_bn = []
+    for layer in modules:
+        if 'model' in str(layer.__class__):
+            continue
+        if 'container' in str(layer.__class__):
+            continue
+        else:
+            if 'batchnorm' in str(layer.__class__):
+                paras_only_bn.extend([*layer.parameters()])
+            else:
+                paras_wo_bn.extend([*layer.parameters()])
+    return paras_only_bn, paras_wo_bn

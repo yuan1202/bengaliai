@@ -4,20 +4,68 @@ import torch.nn.functional as F
 from torch import nn
 
 
-def mixup(imgs, lbls, alpha=.4):
-    gamma = np.random.beta(alpha, alpha, imgs.size(0))
+ALPHA = .4
+
+
+def rand_bboxes_FlantIndices(size, lam):
+    H = size[2]
+    W = size[3]
+    
+    index_addition = np.arange(size[0]) * H * W
+    
+    cut_ratios = np.sqrt(1. - lam)
+    cut_ratios = np.clip(cut_ratios, .2, .8)
+    
+    cut_ws = np.round(W * cut_ratios).astype(int)
+    cut_hs = np.round(H * cut_ratios).astype(int)
+
+    # uniform
+    cx = np.random.randint(W, size=cut_ratios.shape[0])
+    cx = np.clip(cx, cut_ws // 2, W - cut_ws // 2)
+    cy = np.random.randint(H, size=cut_ratios.shape[0])
+    cy = np.clip(cy, cut_hs // 2, H - cut_hs // 2)
+
+    bbx0s = cx - cut_ws // 2
+    bby0s = cy - cut_hs // 2
+    bbx1s = cx + cut_ws // 2
+    bby1s = cy + cut_hs // 2
+    
+    multi_indices = [np.meshgrid(np.arange(x0, x1), np.arange(y0, y1)) for x0, x1, y0, y1 in zip(bbx0s, bbx1s, bby0s, bby1s)]
+    multi_indices_rvl = [np.ravel_multi_index(lst[::-1], (H, W)).flatten() for lst in multi_indices]
+    
+    boxes_in_flattened_indices = np.concatenate([index_r + addition for index_r, addition in zip(multi_indices_rvl, index_addition)])
+    new_lambda = 1 - ((bbx1s - bbx0s) * (bby1s - bby0s) / (H * W))
+    
+    return boxes_in_flattened_indices, new_lambda
+
+
+def MuCm(imgs, lbls):
+    
+    # op = np.random.choice(2, 1, p=(.5, .5)).item()
+    
+    gamma = np.random.beta(ALPHA, ALPHA, imgs.size(0))
     gamma = np.concatenate([gamma[:, None], 1-gamma[:, None]], 1).max(1)
-    gamma = imgs.new(gamma).view(-1, 1, 1, 1)
     
     shuffle = torch.randperm(imgs.size(0)).to(imgs.device)
     shfl_imgs, shfl_lbls = imgs[shuffle], lbls[shuffle]
-    
-    new_imgs = imgs * gamma + shfl_imgs * (1-gamma)
-    return new_imgs, shfl_lbls, gamma.squeeze()
-
+        
+    # if op == 0:
+    gamma = imgs.new(gamma)
+    gamma_img = gamma.view(-1, 1, 1, 1)
+    new_imgs = imgs * gamma_img + shfl_imgs * (1-gamma_img)
+            
+    # elif op == 1:
+    #     flattened_indices, gamma = rand_bboxes_FlantIndices(imgs.size(), gamma)
+    #     gamma = imgs.new(gamma)
+    #     imgs_newview = imgs.view(-1)
+    #     flattened_indices_torch = torch.from_numpy(flattened_indices)
+    #     imgs_newview[flattened_indices_torch] = shfl_imgs.view(-1)[flattened_indices_torch]
+    #     new_imgs = imgs
+            
+    return new_imgs, shfl_lbls, gamma
                                            
 def mixup_loss(preds, lbls, shfl_lbls, gamma):
-    return gamma * F.cross_entropy(preds, lbls, reduction='none') + (1-gamma) * F.cross_entropy(preds, shfl_lbls, reduction='none')
+    return (gamma * F.cross_entropy(preds, lbls, reduction='none') + (1-gamma) * F.cross_entropy(preds, shfl_lbls, reduction='none')).mean()
 
 
 # def to_onehot(truth, num_class):

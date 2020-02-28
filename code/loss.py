@@ -1,3 +1,4 @@
+import math
 import numpy as np
 import torch
 import torch.nn as nn
@@ -6,35 +7,68 @@ import torch.nn.functional as F
 
 # ----------------------------------------------------------------------------------------------------------------------------------
 # https://github.com/vandit15/Class-balanced-loss-pytorch.git
-def focal_loss(labels, logits, alpha=.25, gamma=2.):
-    """Compute the focal loss between `logits` and the ground truth `labels`.
-    Focal loss = -alpha_t * (1-pt)^gamma * log(pt)
-    where pt is the probability of being classified to the true class.
-    pt = p (if true class), otherwise pt = 1 - p. p = sigmoid(logit).
-    Args:
-      labels: A float tensor of size [batch, num_classes].
-      logits: A float tensor of size [batch, num_classes].
-      alpha: A float tensor of size [batch_size]
-        specifying per-example weight for balanced cross entropy.
-      gamma: A float scalar modulating loss from hard and easy examples.
-    Returns:
-      focal_loss: A float32 scalar representing normalized total loss.
-    """    
-    BCLoss = F.binary_cross_entropy_with_logits(input=logits, target=labels, reduction="none")
+# def focal_loss(labels, logits, alpha=.25, gamma=2.):
+#     """Compute the focal loss between `logits` and the ground truth `labels`.
+#     Focal loss = -alpha_t * (1-pt)^gamma * log(pt)
+#     where pt is the probability of being classified to the true class.
+#     pt = p (if true class), otherwise pt = 1 - p. p = sigmoid(logit).
+#     Args:
+#       labels: A float tensor of size [batch, num_classes].
+#       logits: A float tensor of size [batch, num_classes].
+#       alpha: A float tensor of size [batch_size]
+#         specifying per-example weight for balanced cross entropy.
+#       gamma: A float scalar modulating loss from hard and easy examples.
+#     Returns:
+#       focal_loss: A float32 scalar representing normalized total loss.
+#     """    
+#     BCLoss = F.binary_cross_entropy_with_logits(input=logits, target=labels, reduction="none")
 
-    if gamma == 0.0:
-        modulator = 1.0
-    else:
-        modulator = torch.exp(-gamma * labels * logits - gamma * torch.log(1 + torch.exp(-1.0 * logits)))
+#     if gamma == 0.0:
+#         modulator = 1.0
+#     else:
+#         modulator = torch.exp(-gamma * labels * logits - gamma * torch.log(1 + torch.exp(-1.0 * logits)))
 
-    loss = modulator * BCLoss
+#     loss = modulator * BCLoss
 
-    weighted_loss = alpha * loss
-    focal_loss = torch.sum(weighted_loss)
+#     weighted_loss = alpha * loss
+#     focal_loss = torch.sum(weighted_loss)
 
-    focal_loss /= torch.sum(labels)
-    return focal_loss
+#     focal_loss /= torch.sum(labels)
+#     return focal_loss
 
+
+# https://github.com/mbsariyildiz/focal-loss.pytorch.git
+class FocalLoss(nn.Module):
+
+    def __init__(self, gamma=0, alpha=None, size_average=True):
+        super(FocalLoss, self).__init__()
+        self.gamma = gamma
+        self.alpha = alpha
+        if isinstance(alpha, (float, int)): self.alpha = torch.Tensor([alpha, 1 - alpha])
+        if isinstance(alpha, list): self.alpha = torch.Tensor(alpha)
+        self.size_average = size_average
+
+    def forward(self, input, target):
+        if input.dim()>2:
+            input = input.view(input.size(0), input.size(1), -1)  # N,C,H,W => N,C,H*W
+            input = input.transpose(1, 2)                         # N,C,H*W => N,H*W,C
+            input = input.contiguous().view(-1, input.size(2))    # N,H*W,C => N*H*W,C
+        target = target.view(-1, 1)
+
+        logpt = F.log_softmax(input, dim=1)
+        logpt = logpt.gather(1,target)
+        logpt = logpt.view(-1)
+        pt = logpt.exp()
+
+        if self.alpha is not None:
+            if self.alpha.type() != input.data.type():
+                self.alpha = self.alpha.type_as(input.data)
+            at = self.alpha.gather(0, target.data.view(-1))
+            logpt = logpt * at
+
+        loss = -1 * (1 - pt)**self.gamma * logpt
+        if self.size_average: return loss.mean()
+        else: return loss.sum()
 
 
 def CB_loss(labels, logits, samples_per_cls, no_of_classes, beta=.999, gamma=2.):
@@ -86,6 +120,50 @@ class CBLoss_combine_weighted(nn.Module):
                1*CB_loss(y[:,2], x3, consonant_weights, 7)
     
 # ----------------------------------------------------------------------------------------------------------------------------------
+# https://github.com/ronghuaiyang/arcface-pytorch.git
+class ArcMarginProduct(nn.Module):
+    r"""Implement of large margin arc distance: :
+        Args:
+            in_features: size of each input sample
+            out_features: size of each output sample
+            s: norm of input feature
+            m: margin
+            cos(theta + m)
+        """
+    def __init__(self, in_features, out_features, s=30.0, m=0.50, easy_margin=False):
+        super(ArcMarginProduct, self).__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.s = s
+        self.m = m
+        self.weight = nn.Parameter(torch.FloatTensor(out_features, in_features))
+        nn.init.xavier_uniform_(self.weight)
+
+        self.easy_margin = easy_margin
+        self.cos_m = math.cos(m)
+        self.sin_m = math.sin(m)
+        self.th = math.cos(math.pi - m)
+        self.mm = math.sin(math.pi - m) * m
+
+    def forward(self, input, label):
+        # --------------------------- cos(theta) & phi(theta) ---------------------------
+        cosine = F.linear(F.normalize(input), F.normalize(self.weight))
+        sine = torch.sqrt((1.0 - torch.pow(cosine, 2)).clamp(0, 1))
+        phi = cosine * self.cos_m - sine * self.sin_m
+        if self.easy_margin:
+            phi = torch.where(cosine > 0, phi, cosine)
+        else:
+            phi = torch.where(cosine > self.th, phi, cosine - self.mm)
+        # --------------------------- convert label to one-hot ---------------------------
+        # one_hot = torch.zeros(cosine.size(), requires_grad=True, device='cuda')
+        one_hot = torch.zeros(cosine.size(), device='cuda')
+        one_hot.scatter_(1, label.view(-1, 1).long(), 1)
+        # -------------torch.where(out_i = {x_i if condition_i else y_i) -------------
+        output = (one_hot * phi) + ((1.0 - one_hot) * cosine)  # you can use torch.where if your torch.__version__ is 0.4
+        output *= self.s
+
+        return output
+
 # https://github.com/cvqluu/Angular-Penalty-Softmax-Losses-Pytorch.git
 class AngularPenaltySMLoss(nn.Module):
 
@@ -125,8 +203,9 @@ class AngularPenaltySMLoss(nn.Module):
         assert torch.min(labels) >= 0
         assert torch.max(labels) < self.out_features
         
-        for W in self.fc.parameters():
-            W = F.normalize(W, p=2, dim=1)
+        for _, module in self.fc.named_modules():
+            if isinstance(module, nn.Linear):
+                module.weight.data = F.normalize(module.weight, p=2, dim=1)
 
         x = F.normalize(x, p=2, dim=1)
 
@@ -142,8 +221,44 @@ class AngularPenaltySMLoss(nn.Module):
         denominator = torch.exp(numerator) + torch.sum(torch.exp(self.s * excl), dim=1)
         L = numerator - torch.log(denominator)
         return -L
-    
 
+    
+def l2_norm(input, axis=1):
+    norm = torch.norm(input, 2, axis, True)
+    output = torch.div(input, norm)
+    return output
+
+
+class QAMFace(nn.Module):
+    # https://github.com/MccreeZhao/QAMFace/blob/master/model.py
+    # implementation of  Quadratic Additive Angular Margin Loss
+    def __init__(self, embedding_size=512, classnum=51332, s=6., m=0.5):
+        super(QAMFace, self).__init__()
+        self.classnum = classnum
+        self.kernel = nn.Parameter(torch.Tensor(embedding_size, classnum))
+        # initial kernel
+        self.kernel.data.uniform_(-1, 1).renorm_(2, 1, 1e-5).mul_(1e5)
+        self.m = m
+        self.s = s
+        self.eps = 1e-7
+        self.pi = np.pi
+
+    def forward(self, embeddings, label):
+        kernel_norm = l2_norm(self.kernel, axis=0)
+        cos_theta = torch.mm(embeddings, kernel_norm)
+        cos_theta = cos_theta.clamp(-1 + self.eps, 1 - self.eps)  # for numerical stability
+        theta = torch.acos(cos_theta)
+
+        one_hot = torch.zeros_like(cos_theta)
+        one_hot.scatter_(1, label.view(-1, 1), 1)
+        target = (2 * self.pi - (theta + self.m)) ** 2
+        others = (2 * self.pi - theta) ** 2
+
+        output = (one_hot * target) + ((1.0 - one_hot) * others)
+        output *= self.s  # scale up in order to make softmax work, first introduced in normface
+        return output
+    
+    
 # ----------------------------------------------------------------------------------------------------------------------------------
 # https://blog.csdn.net/weixin_40671425/article/details/98068190
 # https://github.com/KaiyangZhou/pytorch-center-loss.git

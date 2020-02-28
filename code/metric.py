@@ -60,9 +60,17 @@ class Metric_idx(Callback):
         return add_metrics(last_metrics, self._recall())
 
     
-Metric_grapheme = partial(Metric_idx,0)
-Metric_vowel = partial(Metric_idx,1)
-Metric_consonant = partial(Metric_idx,2)
+class Metric_grapheme(Metric_idx):
+    def __init__(self):
+        super().__init__(idx=0)
+
+class Metric_vowel(Metric_idx):
+    def __init__(self):
+        super().__init__(idx=1)
+        
+class Metric_consonant(Metric_idx):
+    def __init__(self):
+        super().__init__(idx=2)
 
 
 class Metric_tot(Callback):

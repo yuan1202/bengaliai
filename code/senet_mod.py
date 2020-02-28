@@ -88,10 +88,13 @@ class SEModule(nn.Module):
 
     def __init__(self, channels, reduction):
         super(SEModule, self).__init__()
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        #self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.avg_pool = nn.AdaptiveMaxPool2d(1)
         self.fc1 = nn.Conv2d(channels, channels // reduction, kernel_size=1,
                              padding=0)
-        self.relu = Mish()
+        #self.relu = nn.ReLU(inplace=True)
+        #elf.relu = Mish
+        self.relu = nn.PReLU()
         self.fc2 = nn.Conv2d(channels // reduction, channels, kernel_size=1,
                              padding=0)
         self.sigmoid = nn.Sigmoid()
@@ -151,7 +154,9 @@ class SEBottleneck(Bottleneck):
         self.conv3 = nn.Conv2d(planes * 4, planes * 4, kernel_size=1,
                                bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
-        self.relu = Mish()
+        #self.relu = nn.ReLU(inplace=True)
+        #self.relu = Mish()
+        self.relu = nn.PReLU()
         self.se_module = SEModule(planes * 4, reduction=reduction)
         self.downsample = downsample
         self.stride = stride
@@ -176,7 +181,9 @@ class SEResNetBottleneck(Bottleneck):
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
-        self.relu = Mish()
+        #self.relu = nn.ReLU(inplace=True)
+        #self.relu = Mish()
+        self.relu = nn.PReLU()
         self.se_module = SEModule(planes * 4, reduction=reduction)
         self.downsample = downsample
         self.stride = stride
@@ -200,7 +207,9 @@ class SEResNeXtBottleneck(Bottleneck):
         self.bn2 = nn.BatchNorm2d(width)
         self.conv3 = nn.Conv2d(width, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
-        self.relu = Mish()
+        #self.relu = nn.ReLU(inplace=True)
+        #self.relu = Mish()
+        self.relu = nn.PReLU()
         self.se_module = SEModule(planes * 4, reduction=reduction)
         self.downsample = downsample
         self.stride = stride
@@ -261,22 +270,30 @@ class SENet(nn.Module):
                 ('conv1', nn.Conv2d(3, 64, 3, stride=2, padding=1,
                                     bias=False)),
                 ('bn1', nn.BatchNorm2d(64)),
-                ('relu1', Mish()),
+                #('relu1', nn.ReLU(inplace=True)),
+                #('relu1', Mish()),
+                ('relu1', nn.PReLU()),
                 ('conv2', nn.Conv2d(64, 64, 3, stride=1, padding=1,
                                     bias=False)),
                 ('bn2', nn.BatchNorm2d(64)),
-                ('relu2', Mish()),
+                #('relu2', nn.ReLU(inplace=True)),
+                #('relu2', Mish()),
+                ('relu2', nn.PReLU()),
                 ('conv3', nn.Conv2d(64, inplanes, 3, stride=1, padding=1,
                                     bias=False)),
                 ('bn3', nn.BatchNorm2d(inplanes)),
-                ('relu3', Mish()),
+                #('relu3', nn.ReLU(inplace=True)),
+                #('relu3', Mish()),
+                ('relu3', nn.PReLU()),
             ]
         else:
             layer0_modules = [
                 ('conv1', nn.Conv2d(3, inplanes, kernel_size=7, stride=2,
                                     padding=3, bias=False)),
                 ('bn1', nn.BatchNorm2d(inplanes)),
-                ('relu1', Mish()),
+                #('relu1', nn.ReLU(inplace=True)),
+                #('relu1', Mish()),
+                ('relu1', nn.PReLU()),
             ]
         # To preserve compatibility with Caffe weights `ceil_mode=True`
         # is used instead of `padding=1`.
@@ -422,9 +439,9 @@ def se_resnet152(num_classes=1000, pretrained='imagenet'):
     return model
 
 
-def se_resnext50_32x4d(num_classes=1000, pretrained='imagenet'):
+def se_resnext50_32x4d(num_classes=1000, pretrained=None):
     model = SENet(SEResNeXtBottleneck, [3, 4, 6, 3], groups=32, reduction=16,
-                  dropout_p=None, inplanes=64, input_3x3=False,
+                  dropout_p=None, inplanes=64, input_3x3=True,
                   downsample_kernel_size=1, downsample_padding=0,
                   num_classes=num_classes)
     if pretrained is not None:

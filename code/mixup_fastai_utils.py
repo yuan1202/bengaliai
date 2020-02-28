@@ -54,22 +54,30 @@ class MixUpCallback(LearnerCallback):
     def on_batch_begin(self, last_input, last_target, train, **kwargs):
         "Applies mixup to `last_input` and `last_target` if `train`."
         if not train: return
+        
+        lambd_cap = np.random.choice(2, last_target.size(0), p=[.9, .1])
         lambd = np.random.beta(self.alpha, self.alpha, last_target.size(0))
+        lambd = np.max([lambd, lambd_cap], 0)
+            
         lambd = np.concatenate([lambd[:,None], 1-lambd[:,None]], 1).max(1)
         lambd = last_input.new(lambd)
+        
         shuffle = torch.randperm(last_target.size(0)).to(last_input.device)
         x1, y1 = last_input[shuffle], last_target[shuffle]
+        
         if self.stack_x:
             new_input = [last_input, last_input[shuffle], lambd]
         else: 
             out_shape = [lambd.size(0)] + [1 for _ in range(len(x1.shape) - 1)]
             new_input = (last_input * lambd.view(out_shape) + x1 * (1-lambd).view(out_shape))
+            
         if self.stack_y:
             new_target = torch.cat([last_target.float(), y1.float(), lambd[:,None].float()], 1)
         else:
             if len(last_target.shape) == 2:
                 lambd = lambd.unsqueeze(1).float()
             new_target = last_target.float() * lambd + y1.float() * (1-lambd)
+            
         return {'last_input': new_input, 'last_target': new_target}  
     
     def on_train_end(self, **kwargs):
@@ -149,17 +157,20 @@ def rand_bboxes_FlantIndices(size, lam):
     index_addition = np.arange(size[0]) * H * W
     
     cut_ratios = np.sqrt(1. - lam)
+    
     cut_ws = np.round(W * cut_ratios).astype(int)
     cut_hs = np.round(H * cut_ratios).astype(int)
 
     # uniform
     cx = np.random.randint(W, size=cut_ratios.shape[0])
+    cx = np.clip(cx, cut_ws // 2, W - cut_ws // 2)
     cy = np.random.randint(H, size=cut_ratios.shape[0])
+    cy = np.clip(cy, cut_hs // 2, H - cut_hs // 2)
 
-    bbx0s = np.clip(cx - cut_ws // 2, 0, W)
-    bby0s = np.clip(cy - cut_hs // 2, 0, H)
-    bbx1s = np.clip(cx + cut_ws // 2, 0, W)
-    bby1s = np.clip(cy + cut_hs // 2, 0, H)
+    bbx0s = cx - cut_ws // 2
+    bby0s = cy - cut_hs // 2
+    bbx1s = cx + cut_ws // 2
+    bby1s = cy + cut_hs // 2
     
     multi_indices = [np.meshgrid(np.arange(x0, x1), np.arange(y0, y1)) for x0, x1, y0, y1 in zip(bbx0s, bbx1s, bby0s, bby1s)]
     multi_indices_rvl = [np.ravel_multi_index(lst[::-1], (H, W)).flatten() for lst in multi_indices]
