@@ -24,6 +24,7 @@ class Net(nn.Module):
 
 
     def forward(self, x):
+        batch_size = x.size(0)
 
         x = self.block0(x)
         x = self.block1(x)
@@ -32,7 +33,7 @@ class Net(nn.Module):
         x = self.block4(x)
 
         x = F.adaptive_avg_pool2d(x,1).reshape(batch_size,-1)
-        x = F.dropout(x, 0.25, self.training)
+        #x = F.dropout(x, 0.25, self.training)
 
         logit = [l(x) for l in self.logit]
         return logit

@@ -50,7 +50,7 @@ class LinearBlock(nn.Module):
     
     
 class PretrainedCNN(nn.Module):
-    def __init__(self, out_dim, in_channels=1, model_name='se_resnext50_32x4d', use_bn=True, pretrained='imagenet'):
+    def __init__(self, out_dim, in_channels=1, model_name='se_resnext101_32x4d', use_bn=True, pretrained='imagenet'):
         super(PretrainedCNN, self).__init__()
         
         # convert channels to 3 to adapt to pre-trained model
@@ -67,7 +67,7 @@ class PretrainedCNN(nn.Module):
             inch = None
         
         hdim = 512
-        lin1 = LinearBlock(inch, hdim, use_bn=use_bn, activation=activation, residual=False)
+        lin1 = LinearBlock(inch, hdim, use_bn=use_bn, activation=activation, residual=False, dropout_ratio=.1)
         lin2 = LinearBlock(hdim, out_dim, use_bn=use_bn, activation=None, residual=False)
         self.lin_layers = Sequential(lin1, lin2)
 

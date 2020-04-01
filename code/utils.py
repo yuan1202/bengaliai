@@ -22,7 +22,7 @@ def crop_resize(img0, pad=PADDING, keep_aspect=KEEP_ASPECT):
     img0[-3:, :] = 0
     img0[:, :3] = 0
     img0[:, -3:] = 0
-    ymin, ymax, xmin, xmax = bbox(img0 > 20)
+    ymin, ymax, xmin, xmax = bbox(img0 > 50)
     #cropping may cut too much, so we need to add it back
     xmin = xmin - 5 if (xmin > 5) else 0
     ymin = ymin - 5 if (ymin > 5) else 0
@@ -38,17 +38,32 @@ def crop_resize(img0, pad=PADDING, keep_aspect=KEEP_ASPECT):
         img = np.pad(img, [((l-ly)//2,), ((l-lx)//2,)], mode='constant')
     else:
         img = np.pad(img, [(pad, pad)])
-    return cv2.resize(img, (RESIZE, RESIZE), interpolation=cv2.INTER_CUBIC)
+    return cv2.resize(img, (RESIZE, RESIZE), interpolation=cv2.INTER_AREA )
 
 
 def to_64x112(image):
-    image = cv2.resize(image, dsize=None, fx=64/137,fy=64/137, interpolation=cv2.INTER_CUBIC)
+    image = cv2.resize(image, dsize=None, fx=64/137,fy=64/137, interpolation=cv2.INTER_AREA )
     image = cv2.copyMakeBorder(image,0,0,1,1,cv2.BORDER_CONSTANT,0)
     return image
 
 
 def to_128x128(image):
-    image = cv2.resize(image, dsize=(RESIZE, RESIZE), interpolation=cv2.INTER_CUBIC)
+    image = cv2.resize(image, dsize=(RESIZE, RESIZE), interpolation=cv2.INTER_AREA )
+    return image
+
+
+def to_98x168(image):
+    image = cv2.resize(image, dsize=(168, 98), interpolation=cv2.INTER_AREA )
+    return image
+
+
+def to_128x220(image):
+    image = cv2.resize(image, dsize=(220, 128), interpolation=cv2.INTER_AREA )
+    return image
+
+
+def to_224x224(image):
+    image = cv2.resize(image, dsize=(224, 224), interpolation=cv2.INTER_AREA )
     return image
 
 
@@ -75,9 +90,10 @@ def prepare_image(datadir, data_type='train', submission=False, indices=[0, 1, 2
     images_enhance = []
     for img in images:
         if preprocess:
-            images_enhance.append(crop_resize(np.round(img * (255. / img.max())).astype(np.uint8)))
+            #images_enhance.append(crop_resize(np.round(img * (255. / img.max())).astype(np.uint8)))
+            images_enhance.append(crop_resize(img.astype(np.uint8)))
         else:
-            images_enhance.append(to_128x128(img.astype(np.uint8)))
+            images_enhance.append(to_64x112(img.astype(np.uint8)))
         
     return np.stack(images_enhance), np.concatenate(label_trace, axis=0)
 

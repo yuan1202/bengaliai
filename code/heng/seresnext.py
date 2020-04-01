@@ -498,19 +498,19 @@ class ResNext50(nn.Module):
         )
         self.block1  = nn.Sequential(
              SENextBottleneck( 64, [128,128], 256, stride=2, is_shortcut=True, pool='max', ),
-          * [SENextBottleneck(256, [128,128], 256, stride=1, is_shortcut=False,) for i in range(1,3)],
+          * [SENextBottleneck(256, [128,128], 256, stride=1, is_shortcut=False,) for i in range(1, 3)],
         )
         self.block2  = nn.Sequential(
              SENextBottleneck(256, [256,256], 512, stride=2, is_shortcut=True, pool='max', ),
-          * [SENextBottleneck(512, [256,256], 512, stride=1, is_shortcut=False,) for i in range(1,4)],
+          * [SENextBottleneck(512, [256,256], 512, stride=1, is_shortcut=False,) for i in range(1, 4)],
         )
         self.block3  = nn.Sequential(
              SENextBottleneck( 512,[512,512],1024, stride=2, is_shortcut=True, pool='max', ),
-          * [SENextBottleneck(1024,[512,512],1024, stride=1, is_shortcut=False,) for i in range(1,6)],
+          * [SENextBottleneck(1024,[512,512],1024, stride=1, is_shortcut=False,) for i in range(1, 6)],
         )
         self.block4 = nn.Sequential(
              SENextBottleneck(1024,[1024,1024],2048, stride=2, is_shortcut=True,pool='avg', ),
-          * [SENextBottleneck(2048,[1024,1024],2048, stride=1, is_shortcut=False) for i in range(1,3)],
+          * [SENextBottleneck(2048,[1024,1024],2048, stride=1, is_shortcut=False) for i in range(1, 3)],
         )
 
 
@@ -527,7 +527,8 @@ class ResNext50(nn.Module):
         x = self.block3(x)
         x = self.block4(x)
         
-        x = F.adaptive_avg_pool2d(x,1).reshape(batch_size,-1)
+        x = F.adaptive_avg_pool2d(x, 1).reshape(batch_size, -1)
+        x = F.dropout(x, 0.2, self.training)
         
         logit = self.logit(x)
         
